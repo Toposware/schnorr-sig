@@ -193,6 +193,8 @@ mod derivation;
 /// The Schnorr signature module.
 mod signature;
 
+mod batch;
+
 pub use constants::*;
 
 pub use error::SignatureError;
@@ -205,3 +207,5 @@ pub use keypair::KeyPair;
 pub use derivation::{ChainCode, ExtendedPrivateKey, ExtendedPublicKey};
 
 pub use signature::{KeyedSignature, Signature};
+
+pub use batch::verify_batch;
