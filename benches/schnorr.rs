@@ -14,11 +14,14 @@ use rand_core::{OsRng, RngCore};
 
 extern crate schnorr_sig;
 use schnorr_sig::{
-    ExtendedPrivateKey, ExtendedPublicKey, KeyPair, PrivateKey, PublicKey, PRIVATE_KEY_SEED_LENGTH,
+    verify_batch, ExtendedPrivateKey, ExtendedPublicKey, KeyPair, PrivateKey, PublicKey,
+    PRIVATE_KEY_SEED_LENGTH,
 };
 
 // The byte lengths correspond to 1, 10 and 20 `Fp` elements.
 static MESSAGE_LENGTHS: [usize; 3] = [8, 80, 160];
+
+static BATCH_SIZES: [usize; 5] = [4, 16, 32, 64, 128];
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut rng = OsRng;
@@ -72,6 +75,26 @@ fn criterion_benchmark(c: &mut Criterion) {
         });
     }
 
+    let batch_str = "Verify batch - ".to_string();
+    for &size in BATCH_SIZES.iter() {
+        let name = batch_str.clone() + &size.to_string() + " signatures";
+        let mut message = vec![0u8; 80];
+        rng.fill_bytes(&mut message);
+        let messages = vec![message.as_slice(); size];
+        let mut keypairs = Vec::with_capacity(size);
+        let mut public_keys = Vec::with_capacity(size);
+        let mut signatures = Vec::with_capacity(size);
+        for _ in 0..size {
+            let keypair = KeyPair::new(&mut rng);
+            keypairs.push(keypair);
+            public_keys.push(keypair.public_key);
+            signatures.push(keypair.sign(&message, &mut rng));
+        }
+        c.bench_function(&name, |bench| {
+            bench.iter(|| verify_batch(&signatures, &public_keys, &messages[..], &mut rng))
+        });
+    }
+
     c.bench_function("Derive (priv. key -> priv. key)", |bench| {
         bench.iter(|| ext_skey.derive_private(&i))
     });
@@ -87,6 +110,6 @@ fn criterion_benchmark(c: &mut Criterion) {
 
 criterion_group!(
     name = benches;
-    config = Criterion::default();
+    config = Criterion::default().sample_size(20);
     targets = criterion_benchmark);
 criterion_main!(benches);
