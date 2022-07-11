@@ -17,7 +17,7 @@ use super::{BASEFIELD_LENGTH, KEYED_SIGNATURE_LENGTH, SCALAR_LENGTH, SIGNATURE_L
 
 use bitvec::{order::Lsb0, view::AsBits};
 use cheetah::BASEPOINT_TABLE;
-use cheetah::{AffinePoint, Fp, Fp6, Scalar};
+use cheetah::{AffinePoint, CompressedPoint, Fp, Fp6, Scalar};
 use hash::{
     rescue_64_8_4::RescueHash,
     traits::{Digest, Hasher},
@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serialize", derive(Deserialize, Serialize))]
 pub struct Signature {
     /// The affine coordinate of the random point generated during signing
-    pub x: Fp6,
+    pub x: CompressedPoint,
     /// The exponent from the random scalar, the private key
     /// and the output of the hash seen as a `Scalar` element
     pub e: Scalar,
@@ -42,7 +42,7 @@ pub struct Signature {
 impl ConditionallySelectable for Signature {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Signature {
-            x: Fp6::conditional_select(&a.x, &b.x, choice),
+            x: CompressedPoint::conditional_select(&a.x, &b.x, choice),
             e: Scalar::conditional_select(&a.e, &b.e, choice),
         }
     }
@@ -64,7 +64,7 @@ impl Signature {
 
         let e = r - skey.0 * h_scalar;
         Signature {
-            x: r_point.get_x(),
+            x: r_point.to_compressed(),
             e,
         }
     }
@@ -89,7 +89,7 @@ impl Signature {
 
         let e = r - skey.0 * h_scalar;
         Signature {
-            x: r_point.get_x(),
+            x: r_point.to_compressed(),
             e,
         }
     }
@@ -113,7 +113,7 @@ impl Signature {
 
         let e = r - keypair.private_key.0 * h_scalar;
         Signature {
-            x: r_point.get_x(),
+            x: r_point.to_compressed(),
             e,
         }
     }
@@ -124,7 +124,9 @@ impl Signature {
             return Err(SignatureError::InvalidPublicKey);
         }
 
-        let h = hash_message(&self.x, pkey, message);
+        let x_felt = Fp6::from_bytes(&self.x.0[0..48].try_into().unwrap()).unwrap();
+
+        let h = hash_message(&x_felt, pkey, message);
         let h_bits = h.as_bits::<Lsb0>();
 
         // Reconstruct a scalar from the binary sequence of h
@@ -136,7 +138,7 @@ impl Signature {
             .0
             .multiply_double_with_basepoint_vartime(&h_scalar.to_bytes(), &self.e.to_bytes());
 
-        if r.get_x() == self.x {
+        if r.get_x() == x_felt {
             Ok(())
         } else {
             Err(SignatureError::InvalidSignature)
@@ -146,23 +148,23 @@ impl Signature {
     /// Converts this signature to an array of bytes
     pub fn to_bytes(&self) -> [u8; SIGNATURE_LENGTH] {
         let mut output = [0u8; SIGNATURE_LENGTH];
-        output[0..BASEFIELD_LENGTH].copy_from_slice(&self.x.to_bytes());
-        output[BASEFIELD_LENGTH..SIGNATURE_LENGTH].copy_from_slice(&self.e.to_bytes());
+        output[0..BASEFIELD_LENGTH + 1].copy_from_slice(&self.x.to_bytes());
+        output[BASEFIELD_LENGTH + 1..SIGNATURE_LENGTH].copy_from_slice(&self.e.to_bytes());
 
         output
     }
 
     /// Constructs a signature from an array of bytes
     pub fn from_bytes(bytes: &[u8; SIGNATURE_LENGTH]) -> CtOption<Self> {
-        let mut array = [0u8; BASEFIELD_LENGTH];
-        array.copy_from_slice(&bytes[0..BASEFIELD_LENGTH]);
-        let x = Fp6::from_bytes(&array);
+        let mut array = [0u8; BASEFIELD_LENGTH + 1];
+        array.copy_from_slice(&bytes[0..BASEFIELD_LENGTH + 1]);
+        let x = CompressedPoint::from_bytes(&array);
 
         let mut array = [0u8; SCALAR_LENGTH];
-        array.copy_from_slice(&bytes[BASEFIELD_LENGTH..SIGNATURE_LENGTH]);
+        array.copy_from_slice(&bytes[BASEFIELD_LENGTH + 1..SIGNATURE_LENGTH]);
         let e = Scalar::from_bytes(&array);
 
-        x.and_then(|x| e.and_then(|e| CtOption::new(Signature { x, e }, Choice::from(1u8))))
+        e.and_then(|e| CtOption::new(Signature { x, e }, Choice::from(1u8)))
     }
 }
 
@@ -194,7 +196,7 @@ impl KeyedSignature {
 
         let e = r - skey.0 * h_scalar;
         let signature = Signature {
-            x: r_point.get_x(),
+            x: r_point.to_compressed(),
             e,
         };
 
@@ -264,7 +266,10 @@ impl KeyedSignature {
             KeyedSignature {
                 public_key: public_key.unwrap_or(PublicKey(AffinePoint::generator())),
                 signature: signature.unwrap_or(Signature {
-                    x: Fp6::zero(),
+                    x: CompressedPoint([
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128,
+                    ]),
                     e: Scalar::zero(),
                 }),
             },
@@ -405,7 +410,10 @@ mod test {
 
         {
             let wrong_signature_1 = Signature {
-                x: Fp6::zero(),
+                x: CompressedPoint([
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128,
+                ]),
                 e: signature.e,
             };
             assert!(wrong_signature_1.verify(&message, &pkey).is_err());
@@ -424,27 +432,33 @@ mod test {
     fn test_encoding() {
         assert_eq!(
             Signature {
-                x: Fp6::one(),
+                x: CompressedPoint([
+                    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ]),
                 e: Scalar::zero(),
             }
             .to_bytes(),
             [
                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ]
         );
 
         assert_eq!(
             Signature {
-                x: Fp6::zero(),
+                x: CompressedPoint([
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ]),
                 e: Scalar::one(),
             }
             .to_bytes(),
             [
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ]
         );
 
@@ -452,7 +466,10 @@ mod test {
             KeyedSignature {
                 public_key: PublicKey(AffinePoint::identity()),
                 signature: Signature {
-                    x: Fp6::zero(),
+                    x: CompressedPoint([
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    ]),
                     e: Scalar::one(),
                 },
             }
@@ -461,8 +478,8 @@ mod test {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             ]
         );
 
@@ -471,7 +488,7 @@ mod test {
 
         for _ in 0..100 {
             let sig = Signature {
-                x: Fp6::random(&mut rng),
+                x: AffinePoint::random(&mut rng).to_compressed(),
                 e: Scalar::random(&mut rng),
             };
             let pkey = PublicKey(AffinePoint::random(&mut rng));
@@ -499,7 +516,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         ];
         let recovered_sig = Signature::from_bytes(&bytes);
         assert!(bool::from(recovered_sig.is_none()))

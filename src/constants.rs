@@ -24,7 +24,7 @@ pub const PUBLIC_KEY_LENGTH: usize = BASEFIELD_LENGTH + 1;
 pub const KEY_PAIR_LENGTH: usize = PRIVATE_KEY_LENGTH;
 
 /// Signature length in bytes (serialized form)
-pub const SIGNATURE_LENGTH: usize = BASEFIELD_LENGTH + SCALAR_LENGTH;
+pub const SIGNATURE_LENGTH: usize = BASEFIELD_LENGTH + 1 + SCALAR_LENGTH;
 
 /// Keyed signature length in bytes (serialized form)
 pub const KEYED_SIGNATURE_LENGTH: usize = SIGNATURE_LENGTH + PUBLIC_KEY_LENGTH;
