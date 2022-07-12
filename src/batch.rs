@@ -11,7 +11,6 @@
 //! half-aggregation of EdDSA and variants of Schnorr signatures".
 
 use cheetah::AffinePoint;
-use cheetah::Fp6;
 use cheetah::Scalar;
 use cheetah::BASEPOINT_TABLE;
 
@@ -62,8 +61,7 @@ fn generate_batch_coefficients(
         .zip(public_keys)
         .zip(messages)
         .map(|((s, k), m)| {
-            let x_felt = Fp6::from_bytes(&s.x.0[0..48].try_into().unwrap()).unwrap();
-            let h = hash_message(&x_felt, k, m);
+            let h = hash_message(&s.pt.get_x(), k, m);
             let h_bits = h.as_bits::<Lsb0>();
 
             Scalar::from_bits_vartime(h_bits)
@@ -95,10 +93,7 @@ fn verify_prepared_batch(
         .sum();
     let scaled_basepoint = BASEPOINT_TABLE.multiply_vartime(&lin_comb.to_bytes());
 
-    let points: Vec<AffinePoint> = signatures
-        .iter()
-        .map(|sig| AffinePoint::from_compressed(&sig.x).unwrap())
-        .collect();
+    let points: Vec<AffinePoint> = signatures.iter().map(|sig| sig.pt).collect();
 
     // Multiply each hash by the random value
     for (h, s) in hashes.iter_mut().zip(scalars.iter()) {
