@@ -29,7 +29,7 @@ use subtle::{Choice, ConditionallySelectable, CtOption};
 use serde::{Deserialize, Serialize};
 
 /// A Schnorr signature not attached to its message.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(Deserialize, Serialize))]
 pub struct Signature {
     /// The random affine point generated during signing

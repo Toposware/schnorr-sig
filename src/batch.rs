@@ -22,7 +22,7 @@ use bitvec::{order::Lsb0, view::AsBits};
 use rand_core::{CryptoRng, RngCore};
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::vec::Vec;
 
 /// Verifies a batch of signatures with their associated public_keys
 pub fn verify_batch(
