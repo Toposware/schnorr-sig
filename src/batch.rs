@@ -14,6 +14,8 @@ use cheetah::AffinePoint;
 use cheetah::Scalar;
 use cheetah::BASEPOINT_TABLE;
 
+use core::ops::Neg;
+
 use super::error::SignatureError;
 use super::signature::hash_message;
 use super::{PublicKey, Signature};
@@ -91,27 +93,31 @@ fn verify_prepared_batch(
         .zip(scalars.iter())
         .map(|(e, s)| s * e)
         .sum();
-    let scaled_basepoint = BASEPOINT_TABLE.multiply_vartime(&lin_comb.to_bytes());
+    let scaled_basepoint: AffinePoint = BASEPOINT_TABLE
+        .multiply_vartime(&lin_comb.to_bytes())
+        .into();
 
-    let points: Vec<AffinePoint> = signatures.iter().map(|sig| sig.pt).collect();
+    let mut points: Vec<AffinePoint> = signatures.iter().map(|sig| sig.pt).collect();
+    points.append(&mut public_keys.iter().map(|k| k.0.neg()).collect());
 
     // Multiply each hash by the random value
     for (h, s) in hashes.iter_mut().zip(scalars.iter()) {
-        *h = &*h * s;
+        *h *= s;
     }
-    let key_points: Vec<AffinePoint> = public_keys.into_iter().map(|k| k.0).collect();
 
     // Convert scalars and hash outputs to byte slices
-    let scalar_bytes: Vec<[u8; 32]> = scalars.into_iter().map(|s| s.to_bytes()).collect();
-    let hashes_bytes: Vec<[u8; 32]> = hashes.into_iter().map(|h| h.to_bytes()).collect();
+    let scalar_bytes: Vec<[u8; 32]> = scalars
+        .into_iter()
+        .chain(hashes.into_iter())
+        .map(|s| s.to_bytes())
+        .collect();
 
-    // Compute the multi-scalar multiplication on both side of the equation
+    // Compute the multi-scalar multiplication
+    // This differs from a single Schnorr verification, as we check
+    // Σ s[i].signatures[i].x - Σ s[i]h[i].p[i] = Σ s[i].G
     let left = AffinePoint::multiply_many_vartime(&points, &scalar_bytes);
-    let right = AffinePoint::multiply_many_vartime(&key_points, &hashes_bytes);
-    // Add to the sum of keys the scaled basepoint computed earlier
-    let right = AffinePoint::from(scaled_basepoint.add_mixed_unchecked(&right));
 
-    if left.get_x() == right.get_x() {
+    if left.get_x() == scaled_basepoint.get_x() {
         Ok(())
     } else {
         Err(SignatureError::InvalidSignature)
