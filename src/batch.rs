@@ -157,15 +157,15 @@ mod test {
         let mut keypairs: Vec<KeyPair> = Vec::new();
         let mut signatures: Vec<Signature> = Vec::new();
 
-        for i in 0..messages.len() {
+        for (i, message) in messages.iter().enumerate() {
             let mut keypair: KeyPair = KeyPair::new(&mut rng);
             while !bool::from(keypair.public_key.0.get_y().lexicographically_largest()) {
                 keypair = KeyPair::new(&mut rng);
             }
             if i == 3 || i == 4 {
-                keypair = keypairs[0].clone();
+                keypair = keypairs[0];
             }
-            signatures.push(keypair.sign(messages[i], rng));
+            signatures.push(keypair.sign(message, rng));
             keypairs.push(keypair);
         }
         let mut public_keys: Vec<PublicKey> = keypairs.iter().map(|key| key.public_key).collect();
