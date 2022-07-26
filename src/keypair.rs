@@ -9,9 +9,8 @@
 //! This module provides a `KeyPair` struct
 //! combining a `PrivateKey` and an associated `PublicKey`.
 
-use super::error::SignatureError;
 use super::KEY_PAIR_LENGTH;
-use super::{KeyedSignature, PrivateKey, PublicKey, Signature};
+use super::{PrivateKey, PublicKey};
 
 use rand_core::{CryptoRng, RngCore};
 use subtle::{Choice, CtOption};
@@ -102,29 +101,6 @@ impl KeyPair {
             )
         })
     }
-
-    /// Computes a Schnorr signature
-    pub fn sign(&self, message: &[u8], mut rng: impl CryptoRng + RngCore) -> Signature {
-        Signature::sign_with_keypair(message, self, &mut rng)
-    }
-
-    /// Computes a Schnorr signature binded to its associated public key.
-    pub fn sign_and_bind_pkey(
-        &self,
-        message: &[u8],
-        mut rng: impl CryptoRng + RngCore,
-    ) -> KeyedSignature {
-        KeyedSignature::sign_with_keypair(message, self, &mut rng)
-    }
-
-    /// Verifies a signature against a message and this key pair
-    pub fn verify_signature(
-        self,
-        signature: &Signature,
-        message: &[u8],
-    ) -> Result<(), SignatureError> {
-        signature.verify(message, &self.public_key)
-    }
 }
 
 // Serde Serialize and Deserialize traits are not directly derived
@@ -171,23 +147,6 @@ mod tests {
             assert_eq!(keypair, KeyPair::from(skey));
             assert_eq!(keypair, KeyPair::from(&skey));
         }
-    }
-
-    #[test]
-    fn test_signature() {
-        let mut rng = OsRng;
-
-        let mut message = [0u8; 160];
-        rng.fill_bytes(&mut message);
-
-        let skey = PrivateKey::new(&mut rng);
-        let key_pair = KeyPair::from(skey);
-
-        let signature = key_pair.sign(&message, &mut rng);
-        assert!(key_pair.verify_signature(&signature, &message).is_ok());
-
-        let keyed_signature = key_pair.sign_and_bind_pkey(&message, &mut rng);
-        assert!(keyed_signature.verify(&message).is_ok());
     }
 
     #[test]

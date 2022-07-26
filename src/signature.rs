@@ -48,76 +48,135 @@ impl ConditionallySelectable for Signature {
     }
 }
 
+/// A Schnorr signature not attached to its message, and the associated
+/// signer's public key.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize", derive(Deserialize, Serialize))]
+pub struct KeyedSignature {
+    /// The public key to verify this signature against
+    pub public_key: PublicKey,
+    /// The signature
+    pub signature: Signature,
+}
+
+impl PrivateKey {
+    /// Computes a Schnorr signature.
+    /// It is faster to sign with a `KeyPair` (containing the associated public key).
+    pub fn sign(&self, message: &[u8], mut rng: impl CryptoRng + RngCore) -> Signature {
+        let r = Scalar::random(&mut rng);
+        let r_point = AffinePoint::from(&BASEPOINT_TABLE * r);
+
+        let h = hash_message(&r_point.get_x(), &PublicKey::from(self), message);
+        let h_bits = h.as_bits::<Lsb0>();
+
+        // Reconstruct a scalar from the binary sequence of h
+        let h_scalar = Scalar::from_bits(h_bits);
+
+        let e = r - self.0 * h_scalar;
+        Signature {
+            x: r_point.to_compressed(),
+            e,
+        }
+    }
+
+    /// Computes a Schnorr signature binded to its associated public key.
+    /// It is faster to sign with a `KeyPair` (containing the associated public key).
+    pub fn sign_and_bind_pkey(
+        &self,
+        message: &[u8],
+        mut rng: impl CryptoRng + RngCore,
+    ) -> KeyedSignature {
+        let public_key = PublicKey::from(self);
+        let r = Scalar::random(&mut rng);
+        let r_point = AffinePoint::from(&BASEPOINT_TABLE * r);
+
+        let h = hash_message(&r_point.get_x(), &public_key, message);
+        let h_bits = h.as_bits::<Lsb0>();
+
+        // Reconstruct a scalar from the binary sequence of h
+        let h_scalar = Scalar::from_bits(h_bits);
+
+        let e = r - self.0 * h_scalar;
+        let signature = Signature {
+            x: r_point.to_compressed(),
+            e,
+        };
+
+        KeyedSignature {
+            public_key,
+            signature,
+        }
+    }
+}
+
+impl KeyPair {
+    /// Computes a Schnorr signature
+    pub fn sign(&self, message: &[u8], mut rng: impl CryptoRng + RngCore) -> Signature {
+        let r = Scalar::random(&mut rng);
+        let r_point = AffinePoint::from(&BASEPOINT_TABLE * r);
+
+        let h = hash_message(&r_point.get_x(), &self.public_key, message);
+        let h_bits = h.as_bits::<Lsb0>();
+
+        // Reconstruct a scalar from the binary sequence of h
+        let h_scalar = Scalar::from_bits(h_bits);
+
+        let e = r - self.private_key.0 * h_scalar;
+        Signature {
+            x: r_point.to_compressed(),
+            e,
+        }
+    }
+
+    /// Computes a Schnorr signature binded to its associated public key.
+    pub fn sign_and_bind_pkey(
+        &self,
+        message: &[u8],
+        mut rng: impl CryptoRng + RngCore,
+    ) -> KeyedSignature {
+        let r = Scalar::random(&mut rng);
+        let r_point = AffinePoint::from(&BASEPOINT_TABLE * r);
+
+        let h = hash_message(&r_point.get_x(), &self.public_key, message);
+        let h_bits = h.as_bits::<Lsb0>();
+
+        // Reconstruct a scalar from the binary sequence of h
+        let h_scalar = Scalar::from_bits(h_bits);
+
+        let e = r - self.private_key.0 * h_scalar;
+        let signature = Signature {
+            x: r_point.to_compressed(),
+            e,
+        };
+
+        KeyedSignature {
+            public_key: self.public_key,
+            signature,
+        }
+    }
+
+    /// Verifies a signature against a message and this key pair
+    pub fn verify_signature(
+        self,
+        signature: &Signature,
+        message: &[u8],
+    ) -> Result<(), SignatureError> {
+        signature.verify(message, &self.public_key)
+    }
+}
+
+impl PublicKey {
+    /// Verifies a signature against a message and this public key
+    pub fn verify_signature(
+        self,
+        signature: &Signature,
+        message: &[u8],
+    ) -> Result<(), SignatureError> {
+        signature.verify(message, &self)
+    }
+}
+
 impl Signature {
-    /// Computes a Schnorr signature. This requires to compute the `PublicKey` from
-    /// the provided `PrivateKey` internally. For a faster signing, one should prefer
-    /// to use `Signature::sign_with_provided_pkey` or `Signature::sign_with_keypair`.
-    pub fn sign(message: &[u8], skey: &PrivateKey, mut rng: impl CryptoRng + RngCore) -> Self {
-        let r = Scalar::random(&mut rng);
-        let r_point = AffinePoint::from(&BASEPOINT_TABLE * r);
-
-        let h = hash_message(&r_point.get_x(), &PublicKey::from(skey), message);
-        let h_bits = h.as_bits::<Lsb0>();
-
-        // Reconstruct a scalar from the binary sequence of h
-        let h_scalar = Scalar::from_bits(h_bits);
-
-        let e = r - skey.0 * h_scalar;
-        Signature {
-            x: r_point.to_compressed(),
-            e,
-        }
-    }
-
-    /// Computes a Schnorr signature with a provided `PublicKey` for faster signing.
-    /// This method does not check that the provided `skey` and `pkey` are matching.
-    /// In particular, the resulting signature will be invalid if they don't match.
-    pub fn sign_with_provided_pkey(
-        message: &[u8],
-        skey: &PrivateKey,
-        pkey: &PublicKey,
-        mut rng: impl CryptoRng + RngCore,
-    ) -> Self {
-        let r = Scalar::random(&mut rng);
-        let r_point = AffinePoint::from(&BASEPOINT_TABLE * r);
-
-        let h = hash_message(&r_point.get_x(), pkey, message);
-        let h_bits = h.as_bits::<Lsb0>();
-
-        // Reconstruct a scalar from the binary sequence of h
-        let h_scalar = Scalar::from_bits(h_bits);
-
-        let e = r - skey.0 * h_scalar;
-        Signature {
-            x: r_point.to_compressed(),
-            e,
-        }
-    }
-
-    /// Computes a Schnorr signature with a provided `PublicKey` for faster signing.
-    /// This method does not check that the provided `skey` and `pkey` are matching.
-    /// In particular, the resulting signature will be invalid if they don't match.
-    pub fn sign_with_keypair(
-        message: &[u8],
-        keypair: &KeyPair,
-        mut rng: impl CryptoRng + RngCore,
-    ) -> Self {
-        let r = Scalar::random(&mut rng);
-        let r_point = AffinePoint::from(&BASEPOINT_TABLE * r);
-
-        let h = hash_message(&r_point.get_x(), &keypair.public_key, message);
-        let h_bits = h.as_bits::<Lsb0>();
-
-        // Reconstruct a scalar from the binary sequence of h
-        let h_scalar = Scalar::from_bits(h_bits);
-
-        let e = r - keypair.private_key.0 * h_scalar;
-        Signature {
-            x: r_point.to_compressed(),
-            e,
-        }
-    }
-
     /// Verifies a Schnorr signature
     pub fn verify(self, message: &[u8], pkey: &PublicKey) -> Result<(), SignatureError> {
         if !bool::from(pkey.0.is_torsion_free()) {
@@ -168,73 +227,7 @@ impl Signature {
     }
 }
 
-/// A Schnorr signature not attached to its message, and the associated
-/// signer's public key.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serialize", derive(Deserialize, Serialize))]
-pub struct KeyedSignature {
-    /// The public key to verify this signature against
-    pub public_key: PublicKey,
-    /// The signature
-    pub signature: Signature,
-}
-
 impl KeyedSignature {
-    /// Computes a Schnorr signature. This requires to compute the `PublicKey` from
-    /// the provided `PrivateKey` internally. For a faster signing, one should prefer
-    /// to use `Signature::sign_with_provided_pkey` or `Signature::sign_with_keypair`.
-    pub fn sign(message: &[u8], skey: &PrivateKey, mut rng: impl CryptoRng + RngCore) -> Self {
-        let public_key = PublicKey::from(skey);
-        let r = Scalar::random(&mut rng);
-        let r_point = AffinePoint::from(&BASEPOINT_TABLE * r);
-
-        let h = hash_message(&r_point.get_x(), &public_key, message);
-        let h_bits = h.as_bits::<Lsb0>();
-
-        // Reconstruct a scalar from the binary sequence of h
-        let h_scalar = Scalar::from_bits(h_bits);
-
-        let e = r - skey.0 * h_scalar;
-        let signature = Signature {
-            x: r_point.to_compressed(),
-            e,
-        };
-
-        KeyedSignature {
-            public_key,
-            signature,
-        }
-    }
-
-    /// Computes a Schnorr signature with a provided `PublicKey` for faster signing.
-    /// This method does not check that the provided `skey` and `pkey` are matching.
-    /// In particular, the resulting signature will be invalid if they don't match.
-    pub fn sign_with_provided_pkey(
-        message: &[u8],
-        skey: &PrivateKey,
-        pkey: &PublicKey,
-        mut rng: impl CryptoRng + RngCore,
-    ) -> Self {
-        KeyedSignature {
-            public_key: *pkey,
-            signature: Signature::sign_with_provided_pkey(message, skey, pkey, &mut rng),
-        }
-    }
-
-    /// Computes a Schnorr signature with a provided `PublicKey` for faster signing.
-    /// This method does not check that the provided `skey` and `pkey` are matching.
-    /// In particular, the resulting signature will be invalid if they don't match.
-    pub fn sign_with_keypair(
-        message: &[u8],
-        keypair: &KeyPair,
-        mut rng: impl CryptoRng + RngCore,
-    ) -> Self {
-        KeyedSignature {
-            public_key: keypair.public_key,
-            signature: Signature::sign_with_keypair(message, keypair, &mut rng),
-        }
-    }
-
     /// Verifies a Schnorr signature
     pub fn verify(self, message: &[u8]) -> Result<(), SignatureError> {
         self.signature.verify(message, &self.public_key)
@@ -341,24 +334,19 @@ mod test {
 
         // Regular signature
 
-        let signature = Signature::sign(&message, &skey, &mut rng);
+        let signature = skey.sign(&message, &mut rng);
         assert!(signature.verify(&message, &pkey).is_ok());
-
-        let signature = Signature::sign_with_provided_pkey(&message, &skey, &pkey, &mut rng);
         assert!(pkey.verify_signature(&signature, &message).is_ok());
 
-        let signature = Signature::sign_with_keypair(&message, &keypair, &mut rng);
+        let signature = keypair.sign(&message, &mut rng);
         assert!(keypair.verify_signature(&signature, &message).is_ok());
 
         // Keyed signature
 
-        let signature = KeyedSignature::sign(&message, &skey, &mut rng);
+        let signature = skey.sign_and_bind_pkey(&message, &mut rng);
         assert!(signature.verify(&message).is_ok());
 
-        let signature = KeyedSignature::sign_with_provided_pkey(&message, &skey, &pkey, &mut rng);
-        assert!(signature.verify(&message).is_ok());
-
-        let signature = KeyedSignature::sign_with_keypair(&message, &keypair, &mut rng);
+        let signature = keypair.sign_and_bind_pkey(&message, &mut rng);
         assert!(signature.verify(&message).is_ok());
     }
 
@@ -372,7 +360,7 @@ mod test {
         let skey = PrivateKey::new(&mut rng);
         let pkey = PublicKey::from(&skey);
 
-        let signature = Signature::sign(&message, &skey, &mut rng);
+        let signature = skey.sign(&message, &mut rng);
 
         {
             let mut wrong_message = message;
@@ -532,7 +520,7 @@ mod test {
 
         let skey = PrivateKey::new(&mut rng);
 
-        let signature = Signature::sign(&message, &skey, &mut rng);
+        let signature = skey.sign(&message, &mut rng);
         {
             let encoded = bincode::serialize(&signature).unwrap();
             let parsed: Signature = bincode::deserialize(&encoded).unwrap();
@@ -548,7 +536,7 @@ mod test {
             );
 
             // Check that invalid encodings fail
-            let signature = Signature::sign(&message, &skey, &mut rng);
+            let signature = skey.sign(&message, &mut rng);
             let mut encoded = bincode::serialize(&signature).unwrap();
             encoded[SIGNATURE_LENGTH - 1] = 127;
             assert!(bincode::deserialize::<Signature>(&encoded).is_err());
@@ -589,7 +577,7 @@ mod test {
             );
 
             // Check that invalid encodings fail
-            let keyed_signature = KeyedSignature::sign(&message, &skey, &mut rng);
+            let keyed_signature = skey.sign_and_bind_pkey(&message, &mut rng);
             let mut encoded = bincode::serialize(&keyed_signature).unwrap();
             encoded[KEYED_SIGNATURE_LENGTH - 1] = 127;
             assert!(bincode::deserialize::<KeyedSignature>(&encoded).is_err());

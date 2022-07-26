@@ -9,9 +9,8 @@
 //! This module provides a `PublicKey` wrapping
 //! struct around an `AffinePoint` element.
 
-use super::error::SignatureError;
+use super::PrivateKey;
 use super::PUBLIC_KEY_LENGTH;
-use super::{PrivateKey, Signature};
 
 use cheetah::{AffinePoint, CompressedPoint, BASEPOINT_TABLE};
 use subtle::{Choice, ConditionallySelectable, CtOption};
@@ -55,22 +54,13 @@ impl PublicKey {
     pub fn from_bytes(bytes: &[u8; PUBLIC_KEY_LENGTH]) -> CtOption<Self> {
         AffinePoint::from_compressed(&CompressedPoint::from_bytes(bytes)).map(PublicKey)
     }
-
-    /// Verifies a signature against a message and this public key
-    pub fn verify_signature(
-        self,
-        signature: &Signature,
-        message: &[u8],
-    ) -> Result<(), SignatureError> {
-        signature.verify(message, &self)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use cheetah::Scalar;
-    use rand_core::{OsRng, RngCore};
+    use rand_core::OsRng;
 
     #[test]
     fn test_from_private_key() {
@@ -98,20 +88,6 @@ mod tests {
             ConditionallySelectable::conditional_select(&a, &b, Choice::from(1u8)),
             b
         );
-    }
-
-    #[test]
-    fn test_signature() {
-        let mut rng = OsRng;
-
-        let mut message = [0u8; 160];
-        rng.fill_bytes(&mut message);
-
-        let skey = PrivateKey::new(&mut rng);
-        let pkey = PublicKey::from(&skey);
-
-        let signature = Signature::sign(&message, &skey, &mut rng);
-        assert!(pkey.verify_signature(&signature, &message).is_ok());
     }
 
     #[test]

@@ -9,8 +9,8 @@
 //! This module provides a `PrivateKey` wrapping
 //! struct around a `Scalar` element.
 
+use super::KeyPair;
 use super::PRIVATE_KEY_LENGTH;
-use super::{KeyPair, KeyedSignature, Signature};
 
 use cheetah::Scalar;
 use rand_core::{CryptoRng, RngCore};
@@ -80,32 +80,12 @@ impl PrivateKey {
         let s = Scalar::from_bytes_wide(seed);
         CtOption::new(PrivateKey(s), !s.is_zero())
     }
-
-    /// Computes a Schnorr signature.
-    /// It is faster to sign with a `KeyPair` (containing the associated public key),
-    /// or to sign through the `Signature::sign_with_provided_pkey` method.
-    pub fn sign(&self, message: &[u8], mut rng: impl CryptoRng + RngCore) -> Signature {
-        Signature::sign(message, self, &mut rng)
-    }
-
-    /// Computes a Schnorr signature binded to its associated public key.
-    /// It is faster to sign with a `KeyPair` (containing the associated public key),
-    /// or to sign through the `Signature::sign_with_provided_pkey` method.
-    pub fn sign_and_bind_pkey(
-        &self,
-        message: &[u8],
-        mut rng: impl CryptoRng + RngCore,
-    ) -> KeyedSignature {
-        KeyedSignature::sign(message, self, &mut rng)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rand_core::OsRng;
-
-    use crate::PublicKey;
 
     #[test]
     fn test_from_keypair() {
@@ -132,23 +112,6 @@ mod tests {
             ConditionallySelectable::conditional_select(&a, &b, Choice::from(1u8)),
             b
         );
-    }
-
-    #[test]
-    fn test_signature() {
-        let mut rng = OsRng;
-
-        let mut message = [0u8; 160];
-        rng.fill_bytes(&mut message);
-
-        let skey = PrivateKey::new(&mut rng);
-        let pkey = PublicKey::from(&skey);
-
-        let signature = skey.sign(&message, &mut rng);
-        assert!(signature.verify(&message, &pkey).is_ok());
-
-        let keyed_signature = skey.sign_and_bind_pkey(&message, &mut rng);
-        assert!(keyed_signature.verify(&message).is_ok());
     }
 
     #[test]

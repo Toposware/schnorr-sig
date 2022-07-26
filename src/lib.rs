@@ -31,14 +31,13 @@
 //! ```rust
 //! use cheetah::Fp;
 //! use schnorr_sig::PrivateKey;
-//! use schnorr_sig::Signature;
 //! use rand_core::OsRng;
 //!
 //! let mut rng = OsRng;
 //! let message = [1u8; 120];
 //! let skey = PrivateKey::new(&mut rng);
 //!
-//! let signature = Signature::sign(&message, &skey, &mut rng);
+//! let signature = skey.sign(&message, &mut rng);
 //! ```
 //!
 //! ```rust
@@ -54,37 +53,8 @@
 //! ```
 //!
 //! The Schnorr signatures of this library hash the public key associated
-//! to the signing key. For a faster signing process, one can call either
-//! the `sign_with_provided_pkey` or `sign_with_keypair` methods, or the
-//! `sign` method from the `KeyPair` struct, as shown below:
-//!
-//! ```rust
-//! use cheetah::Fp;
-//! use schnorr_sig::PrivateKey;
-//! use schnorr_sig::PublicKey;
-//! use schnorr_sig::Signature;
-//! use rand_core::OsRng;
-//!
-//! let mut rng = OsRng;
-//! let message = [1u8; 120];
-//! let skey = PrivateKey::new(&mut rng);
-//! let pkey = PublicKey::from(&skey);
-//!
-//! let signature = Signature::sign_with_provided_pkey(&message, &skey, &pkey, &mut rng);
-//! ```
-//!
-//! ```rust
-//! use cheetah::Fp;
-//! use schnorr_sig::KeyPair;
-//! use schnorr_sig::Signature;
-//! use rand_core::OsRng;
-//!
-//! let mut rng = OsRng;
-//! let message = [1u8; 120];
-//! let keypair = KeyPair::new(&mut rng);
-//!
-//! let signature = Signature::sign_with_keypair(&message, &keypair, &mut rng);
-//! ```
+//! to the signing key. For a faster signing process, one can call rather
+//! sign from a `KeyPair` element.
 //!
 //! ```rust
 //! use cheetah::Fp;
@@ -157,21 +127,18 @@
 //! ```
 //!
 //! The `KeyedSignature` struct can also be used to attach the identity
-//! of the signer (its `PublicKey`) to a produced signature. The
-//! `KeyedSignature` struct shares the same signing methods than the
-//! `Signature` struct, and can be verified like this:
+//! of the signer (its `PublicKey`) to a produced signature.
 //!
 //! ```rust
 //! use cheetah::Fp;
 //! use schnorr_sig::KeyPair;
-//! use schnorr_sig::KeyedSignature;
 //! use rand_core::OsRng;
 //!
 //! let mut rng = OsRng;
 //! let message = [1u8; 120];
 //! let keypair = KeyPair::new(&mut rng);
 //!
-//! let keyed_signature = KeyedSignature::sign_with_keypair(&message, &keypair, &mut rng);
+//! let keyed_signature = keypair.sign_and_bind_pkey(&message, &mut rng);
 //!
 //! assert!(keypair.verify_signature(&keyed_signature.signature, &message).is_ok());
 //! assert!(keyed_signature.verify(&message).is_ok());
